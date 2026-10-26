@@ -10,7 +10,7 @@ type Activity struct {
     Activity string `json:"activity"`
 }
 
-func NewClient(url string) (activity string){
+func NewClient(url string) string{
 
 	client := &http.Client{}
 
@@ -18,7 +18,7 @@ func NewClient(url string) (activity string){
 
 	if err != nil {
 		fmt.Println("Request Error: ", err)
-		return
+		return err.Error()
 	}
 
 	defer res.Body.Close()
@@ -26,7 +26,7 @@ func NewClient(url string) (activity string){
 	if res.StatusCode != http.StatusOK {
 		fmt.Println("Unexpected Status: ", res.Status,
 					"\nCode: ", res.StatusCode)
-		return
+		return string(res.StatusCode)
 	}
 
 	var acData Activity
@@ -34,9 +34,9 @@ func NewClient(url string) (activity string){
 	err = json.NewDecoder(res.Body).Decode(&acData)
 	if err != nil {
 		fmt.Println(err)
-		return
+		return err.Error()
 	}
 
-	activity = "Hey We Found A Good Activity For You: " + acData.Activity
-	return
+	activity := "Hey We Found A Good Activity For You: " + acData.Activity
+	return activity
 }
