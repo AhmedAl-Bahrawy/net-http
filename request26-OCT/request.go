@@ -24,7 +24,7 @@ func NewRequest(url string) string{
 	// Prepare for the Request
 	req, err := http.NewRequest(
 		http.MethodGet,
-		"https://bored-api.appbrewery.com/random",
+		url,
 		nil,
 	)
 	// Error Handle
