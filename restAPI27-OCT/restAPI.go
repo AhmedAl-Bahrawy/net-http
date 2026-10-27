@@ -12,8 +12,13 @@ type Task struct {
 	Completed bool   `json:"completed"`
 }
 
-func getTasksData() (tasks []Task) {
-	tasks = []Task{
+func (t Task) createTask(title string, completed bool) {
+	// I will write this function tommorow
+}
+
+func getTasksData() (tasks *[]Task) {
+	// I will edit this function
+	tasks = &[]Task{
 		{ID: 1, Title: "Learn Go", Completed: false},
 		{ID: 2, Title: "Build an API", Completed: false},
 	}
@@ -51,7 +56,11 @@ func getTask(tasks *[]Task) http.HandlerFunc {
 }
 
 func CreateRestAPIServer() {
-	tasks := getTasksData()
+
+	// need to edit how to import this tasks
+	tasks := *getTasksData()
+
 	http.HandleFunc("/tasks", getTasks(&tasks))
 	http.HandleFunc("/tasks/{taskId}", getTask(&tasks))
+
 }
