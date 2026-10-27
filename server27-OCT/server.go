@@ -22,6 +22,4 @@ func HandleServer(g string) {
 
 	gHandler := greetHandler{Greeting: g}
 	http.Handle("/greet", gHandler)
-
-	http.ListenAndServe(":8080", nil)
 }
