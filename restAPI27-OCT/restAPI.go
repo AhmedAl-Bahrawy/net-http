@@ -20,15 +20,15 @@ func getTasksData() (tasks []Task) {
 	return
 }
 
-func getTasks(tasks []Task) http.HandlerFunc {
+func getTasks(tasks *[]Task) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
-		json.NewEncoder(w).Encode(tasks)
+		json.NewEncoder(w).Encode(*tasks)
 	}
 }
 
-func getTask(tasks []Task) http.HandlerFunc {
+func getTask(tasks *[]Task) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -40,17 +40,18 @@ func getTask(tasks []Task) http.HandlerFunc {
 			return
 		}
 
-		if taskId < 0 || taskId >= len(tasks) {
-			http.Error(w, "Task not found", http.StatusNotFound)
-			return
+		for _, task := range *tasks {
+			if task.ID == taskId {
+				json.NewEncoder(w).Encode(task)
+				return
+			}
 		}
-
-		json.NewEncoder(w).Encode(tasks[taskId])
+		http.Error(w, "Task not found", http.StatusNotFound)
 	}
 }
 
 func CreateRestAPIServer() {
 	tasks := getTasksData()
-	http.HandleFunc("/tasks", getTasks(tasks))
-	http.HandleFunc("/tasks/{taskId}", getTask(tasks))
+	http.HandleFunc("/tasks", getTasks(&tasks))
+	http.HandleFunc("/tasks/{taskId}", getTask(&tasks))
 }
