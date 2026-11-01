@@ -12,20 +12,22 @@ type Task struct {
 	Completed bool   `json:"completed"`
 }
 
-func (t Task) createTask(title string, completed bool) {
-	// I will write this function tommorow
+type Tasks []Task
+
+func (t *Tasks) GetTasks() []Task {
+	return *t
 }
 
-func getTasksData() (tasks *[]Task) {
-	// I will edit this function
-	tasks = &[]Task{
-		{ID: 1, Title: "Learn Go", Completed: false},
-		{ID: 2, Title: "Build an API", Completed: false},
+func (t *Tasks) CreateTask(title string, completed bool) {
+	task := Task{
+		ID:        len(*t) + 1,
+		Title:     title,
+		Completed: completed,
 	}
-	return
+	*t = append(*t, task)
 }
 
-func getTasks(tasks *[]Task) http.HandlerFunc {
+func getTasksJson(tasks *[]Task) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -33,7 +35,7 @@ func getTasks(tasks *[]Task) http.HandlerFunc {
 	}
 }
 
-func getTask(tasks *[]Task) http.HandlerFunc {
+func getTaskJson(tasks *[]Task) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -56,11 +58,15 @@ func getTask(tasks *[]Task) http.HandlerFunc {
 }
 
 func CreateRestAPIServer() {
+	var tasks Tasks
 
-	// need to edit how to import this tasks
-	tasks := *getTasksData()
+	tasks.CreateTask("Learn Go", false)
+	tasks.CreateTask("Build an API", false)
+	tasks.CreateTask("Learn PostgreSQL", true)
 
-	http.HandleFunc("/tasks", getTasks(&tasks))
-	http.HandleFunc("/tasks/{taskId}", getTask(&tasks))
+	allTasks := tasks.GetTasks()
+
+	http.HandleFunc("/tasks", getTasksJson(&allTasks))
+	http.HandleFunc("/tasks/{taskId}", getTaskJson(&allTasks))
 
 }
