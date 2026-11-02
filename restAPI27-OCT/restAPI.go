@@ -27,8 +27,45 @@ func (t *Tasks) CreateTask(title string, completed bool) {
 	*t = append(*t, task)
 }
 
-func getTasksJson(tasks *[]Task) http.HandlerFunc {
+func createTaskJson(tasks *Tasks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Invalid Http Method", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var newTask Task
+
+		err := json.NewDecoder(r.Body).Decode(&newTask)
+
+		if err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		if newTask.Title == "" {
+			http.Error(w, "Title is required", http.StatusBadRequest)
+			return
+		}
+
+		tasks.CreateTask(newTask.Title, newTask.Completed)
+
+		createdTask := (*tasks)[len(*tasks)-1]
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+
+		json.NewEncoder(w).Encode(createdTask)
+	}
+}
+
+func getTasksJson(tasks *Tasks) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "Invalid http Method", http.StatusMethodNotAllowed)
+			return
+		}
+
 		w.Header().Set("Content-Type", "application/json")
 
 		json.NewEncoder(w).Encode(*tasks)
@@ -57,6 +94,22 @@ func getTaskJson(tasks *[]Task) http.HandlerFunc {
 	}
 }
 
+func tasksHandler(tasks Tasks) {
+	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			getTasksJson(&tasks)(w, r)
+
+		case http.MethodPost:
+			createTaskJson(&tasks)(w, r)
+
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
+
+}
+
 func CreateRestAPIServer() {
 	var tasks Tasks
 
@@ -64,9 +117,10 @@ func CreateRestAPIServer() {
 	tasks.CreateTask("Build an API", false)
 	tasks.CreateTask("Learn PostgreSQL", true)
 
-	allTasks := tasks.GetTasks()
+	taskSlices := tasks.GetTasks()
 
-	http.HandleFunc("/tasks", getTasksJson(&allTasks))
-	http.HandleFunc("/tasks/{taskId}", getTaskJson(&allTasks))
+	tasksHandler(tasks)
+
+	http.HandleFunc("/tasks/{taskId}", getTaskJson(&taskSlices))
 
 }
