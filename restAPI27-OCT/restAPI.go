@@ -6,6 +6,8 @@ import (
 	"strconv"
 )
 
+// Task / Tasks Struct Start
+
 type Task struct {
 	ID        int    `json:"id"`
 	Title     string `json:"title"`
@@ -13,10 +15,6 @@ type Task struct {
 }
 
 type Tasks []Task
-
-func (t *Tasks) GetTasks() []Task {
-	return *t
-}
 
 func (t *Tasks) CreateTask(title string, completed bool) {
 	task := Task{
@@ -26,6 +24,19 @@ func (t *Tasks) CreateTask(title string, completed bool) {
 	}
 	*t = append(*t, task)
 }
+
+func (t *Tasks) PatchTask(title string, completed bool, id int) bool {
+	for i := range *t {
+		if (*t)[i].ID == id {
+			(*t)[i].Title = title
+			(*t)[i].Completed = completed
+			return true
+		}
+	}
+	return false
+}
+
+// Task / Tasks Struct End
 
 func createTaskJson(tasks *Tasks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -59,6 +70,45 @@ func createTaskJson(tasks *Tasks) http.HandlerFunc {
 	}
 }
 
+func patchTaskJson(tasks *Tasks) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		queryParams := r.URL.Query()
+
+		title := queryParams.Get("title")
+		if title == "" {
+			http.Error(w, "Invalid string value for 'title'", http.StatusBadRequest)
+			return
+		}
+
+		completed, err := strconv.ParseBool(queryParams.Get("completed"))
+		if err != nil {
+			http.Error(w, "Invalid boolean value for 'completed'", http.StatusBadRequest)
+			return
+		}
+
+		id := r.PathValue("taskId")
+		taskId, err := strconv.Atoi(id)
+		if err != nil {
+			http.Error(w, "Invalid task ID", http.StatusBadRequest)
+			return
+		}
+
+		found := tasks.PatchTask(title, completed, taskId)
+
+		if found == false {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Task updated successfully",
+		})
+	}
+}
+
 func getTasksJson(tasks *Tasks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -72,7 +122,7 @@ func getTasksJson(tasks *Tasks) http.HandlerFunc {
 	}
 }
 
-func getTaskJson(tasks *[]Task) http.HandlerFunc {
+func getTaskJson(tasks *Tasks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 
@@ -94,20 +144,36 @@ func getTaskJson(tasks *[]Task) http.HandlerFunc {
 	}
 }
 
-func tasksHandler(tasks Tasks) {
+func tasksHandler(tasks *Tasks) {
 	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			getTasksJson(&tasks)(w, r)
+			getTasksJson(tasks)(w, r)
 
 		case http.MethodPost:
-			createTaskJson(&tasks)(w, r)
+			createTaskJson(tasks)(w, r)
 
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
 
+	http.HandleFunc("/tasks/create", createTaskJson(tasks))
+}
+
+func taskHandler(tasks *Tasks) {
+	http.HandleFunc("/tasks/{taskId}", func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet:
+			getTaskJson(tasks)(w, r)
+
+		case http.MethodPatch:
+			patchTaskJson(tasks)(w, r)
+
+		default:
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		}
+	})
 }
 
 func CreateRestAPIServer() {
@@ -117,10 +183,6 @@ func CreateRestAPIServer() {
 	tasks.CreateTask("Build an API", false)
 	tasks.CreateTask("Learn PostgreSQL", true)
 
-	taskSlices := tasks.GetTasks()
-
-	tasksHandler(tasks)
-
-	http.HandleFunc("/tasks/{taskId}", getTaskJson(&taskSlices))
-
+	tasksHandler(&tasks)
+	taskHandler(&tasks)
 }
