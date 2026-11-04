@@ -17,8 +17,16 @@ type Task struct {
 type Tasks []Task
 
 func (t *Tasks) CreateTask(title string, completed bool) {
+	newID := 1
+
+	for _, task := range *t {
+		if task.ID >= newID {
+			newID = task.ID + 1
+		}
+	}
+
 	task := Task{
-		ID:        len(*t) + 1,
+		ID:        newID,
 		Title:     title,
 		Completed: completed,
 	}
