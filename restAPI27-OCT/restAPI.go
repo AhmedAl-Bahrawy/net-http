@@ -44,6 +44,16 @@ func (t *Tasks) PatchTask(title string, completed bool, id int) bool {
 	return false
 }
 
+func (t *Tasks) DeleteTask(id int) bool {
+	for i, task := range *t {
+		if task.ID == id {
+			*t = append((*t)[:i], (*t)[i+1:]...)
+			return true
+		}
+	}
+	return false
+}
+
 // Task / Tasks Struct End
 
 func createTaskJson(tasks *Tasks) http.HandlerFunc {
@@ -117,6 +127,32 @@ func patchTaskJson(tasks *Tasks) http.HandlerFunc {
 	}
 }
 
+func deleteTaskJson(tasks *Tasks) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("taskId")
+		taskId, err := strconv.Atoi(id)
+
+		if err != nil {
+			http.Error(w, "Invalid task ID", http.StatusBadRequest)
+			return
+		}
+
+		found := tasks.DeleteTask(taskId)
+
+		if found == false {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+
+		json.NewEncoder(w).Encode(map[string]string{
+			"message": "Task deleted successfully",
+		})
+	}
+}
+
 func getTasksJson(tasks *Tasks) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -165,8 +201,6 @@ func tasksHandler(tasks *Tasks) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-
-	http.HandleFunc("/tasks/create", createTaskJson(tasks))
 }
 
 func taskHandler(tasks *Tasks) {
@@ -177,6 +211,9 @@ func taskHandler(tasks *Tasks) {
 
 		case http.MethodPatch:
 			patchTaskJson(tasks)(w, r)
+
+		case http.MethodDelete:
+			deleteTaskJson(tasks)(w, r)
 
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
