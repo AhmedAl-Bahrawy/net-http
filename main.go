@@ -3,11 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
-	client26oct "net-http/client26-OCT"
-	request26oct "net-http/request26-OCT"
-	restapi27oct "net-http/restAPI27-OCT"
-	server27oct "net-http/server27-OCT"
 	"net/http"
+
+	// Go maps this prefix locally because it matches your go.mod module declaration
+	client26oct "github.com/AhmedAl-Bahrawy/net-http/client26-OCT"
+	request26oct "github.com/AhmedAl-Bahrawy/net-http/request26-OCT"
+	restapi27oct "github.com/AhmedAl-Bahrawy/net-http/restAPI27-OCT"
+	server27oct "github.com/AhmedAl-Bahrawy/net-http/server27-OCT"
 )
 
 func main() {
