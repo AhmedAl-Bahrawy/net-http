@@ -1,12 +1,17 @@
 package restapi27oct
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Task / Tasks Struct Start
+// Task Struct Start
 
 type Task struct {
 	ID        int    `json:"id"`
@@ -14,59 +19,133 @@ type Task struct {
 	Completed bool   `json:"completed"`
 }
 
-type Tasks []Task
+// Task Struct End
 
-func (t *Tasks) CreateTask(title string, completed bool) {
-	newID := 1
+// Database Operations Start
 
-	for _, task := range *t {
-		if task.ID >= newID {
-			newID = task.ID + 1
-		}
-	}
+func CreateTask(ctx context.Context, pool *pgxpool.Pool, title string, completed bool) (Task, error) {
+	var task Task
 
-	task := Task{
-		ID:        newID,
-		Title:     title,
-		Completed: completed,
-	}
-	*t = append(*t, task)
+	query := `
+		INSERT INTO tasks (title, completed)
+		VALUES ($1, $2)
+		RETURNING id, title, completed
+	`
+
+	err := pool.QueryRow(ctx, query, title, completed).Scan(
+		&task.ID,
+		&task.Title,
+		&task.Completed,
+	)
+
+	return task, err
 }
 
-func (t *Tasks) PatchTask(title string, completed bool, id int) bool {
-	for i := range *t {
-		if (*t)[i].ID == id {
-			(*t)[i].Title = title
-			(*t)[i].Completed = completed
-			return true
-		}
+func PatchTask(ctx context.Context, pool *pgxpool.Pool, title string, completed bool, id int) (bool, error) {
+	query := `
+		UPDATE tasks
+		SET title = $1, completed = $2
+		WHERE id = $3
+	`
+
+	result, err := pool.Exec(ctx, query, title, completed, id)
+	if err != nil {
+		return false, err
 	}
-	return false
+
+	return result.RowsAffected() > 0, nil
 }
 
-func (t *Tasks) DeleteTask(id int) bool {
-	for i, task := range *t {
-		if task.ID == id {
-			*t = append((*t)[:i], (*t)[i+1:]...)
-			return true
-		}
+func DeleteTask(ctx context.Context, pool *pgxpool.Pool, id int) (bool, error) {
+	query := `
+		DELETE FROM tasks
+		WHERE id = $1
+	`
+
+	result, err := pool.Exec(ctx, query, id)
+	if err != nil {
+		return false, err
 	}
-	return false
+
+	return result.RowsAffected() > 0, nil
 }
 
-// Task / Tasks Struct End
+func GetTasks(ctx context.Context, pool *pgxpool.Pool) ([]Task, error) {
+	query := `
+		SELECT id, title, completed
+		FROM tasks
+		ORDER BY id
+	`
 
-func createTaskJson(tasks *Tasks) http.HandlerFunc {
+	rows, err := pool.Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var tasks []Task
+
+	for rows.Next() {
+		var task Task
+
+		err := rows.Scan(
+			&task.ID,
+			&task.Title,
+			&task.Completed,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		tasks = append(tasks, task)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	if tasks == nil {
+		tasks = []Task{}
+	}
+
+	return tasks, nil
+}
+
+func GetTask(ctx context.Context, pool *pgxpool.Pool, id int) (Task, bool, error) {
+	var task Task
+
+	query := `
+		SELECT id, title, completed
+		FROM tasks
+		WHERE id = $1
+	`
+
+	err := pool.QueryRow(ctx, query, id).Scan(
+		&task.ID,
+		&task.Title,
+		&task.Completed,
+	)
+
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Task{}, false, nil
+	}
+
+	if err != nil {
+		return Task{}, false, err
+	}
+
+	return task, true, nil
+}
+
+// Database Operations End
+
+// JSON / HTTP Handlers Start
+
+func createTaskJson(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Invalid Http Method", http.StatusMethodNotAllowed)
-			return
-		}
-
 		var newTask Task
 
 		err := json.NewDecoder(r.Body).Decode(&newTask)
-
 		if err != nil {
 			http.Error(w, "Invalid JSON", http.StatusBadRequest)
 			return
@@ -77,9 +156,17 @@ func createTaskJson(tasks *Tasks) http.HandlerFunc {
 			return
 		}
 
-		tasks.CreateTask(newTask.Title, newTask.Completed)
+		createdTask, err := CreateTask(
+			r.Context(),
+			pool,
+			newTask.Title,
+			newTask.Completed,
+		)
 
-		createdTask := (*tasks)[len(*tasks)-1]
+		if err != nil {
+			http.Error(w, "Failed to create task", http.StatusInternalServerError)
+			return
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
@@ -88,7 +175,7 @@ func createTaskJson(tasks *Tasks) http.HandlerFunc {
 	}
 }
 
-func patchTaskJson(tasks *Tasks) http.HandlerFunc {
+func patchTaskJson(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		queryParams := r.URL.Query()
 
@@ -111,9 +198,20 @@ func patchTaskJson(tasks *Tasks) http.HandlerFunc {
 			return
 		}
 
-		found := tasks.PatchTask(title, completed, taskId)
+		found, err := PatchTask(
+			r.Context(),
+			pool,
+			title,
+			completed,
+			taskId,
+		)
 
-		if found == false {
+		if err != nil {
+			http.Error(w, "Failed to update task", http.StatusInternalServerError)
+			return
+		}
+
+		if !found {
 			http.Error(w, "Task not found", http.StatusNotFound)
 			return
 		}
@@ -127,7 +225,7 @@ func patchTaskJson(tasks *Tasks) http.HandlerFunc {
 	}
 }
 
-func deleteTaskJson(tasks *Tasks) http.HandlerFunc {
+func deleteTaskJson(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("taskId")
 		taskId, err := strconv.Atoi(id)
@@ -137,9 +235,14 @@ func deleteTaskJson(tasks *Tasks) http.HandlerFunc {
 			return
 		}
 
-		found := tasks.DeleteTask(taskId)
+		found, err := DeleteTask(r.Context(), pool, taskId)
 
-		if found == false {
+		if err != nil {
+			http.Error(w, "Failed to delete task", http.StatusInternalServerError)
+			return
+		}
+
+		if !found {
 			http.Error(w, "Task not found", http.StatusNotFound)
 			return
 		}
@@ -153,23 +256,23 @@ func deleteTaskJson(tasks *Tasks) http.HandlerFunc {
 	}
 }
 
-func getTasksJson(tasks *Tasks) http.HandlerFunc {
+func getTasksJson(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Invalid http Method", http.StatusMethodNotAllowed)
+		tasks, err := GetTasks(r.Context(), pool)
+
+		if err != nil {
+			http.Error(w, "Failed to retrieve tasks", http.StatusInternalServerError)
 			return
 		}
 
 		w.Header().Set("Content-Type", "application/json")
 
-		json.NewEncoder(w).Encode(*tasks)
+		json.NewEncoder(w).Encode(tasks)
 	}
 }
 
-func getTaskJson(tasks *Tasks) http.HandlerFunc {
+func getTaskJson(pool *pgxpool.Pool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
 		id := r.PathValue("taskId")
 		taskId, err := strconv.Atoi(id)
 
@@ -178,24 +281,36 @@ func getTaskJson(tasks *Tasks) http.HandlerFunc {
 			return
 		}
 
-		for _, task := range *tasks {
-			if task.ID == taskId {
-				json.NewEncoder(w).Encode(task)
-				return
-			}
+		task, found, err := GetTask(r.Context(), pool, taskId)
+
+		if err != nil {
+			http.Error(w, "Failed to retrieve task", http.StatusInternalServerError)
+			return
 		}
-		http.Error(w, "Task not found", http.StatusNotFound)
+
+		if !found {
+			http.Error(w, "Task not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+
+		json.NewEncoder(w).Encode(task)
 	}
 }
 
-func tasksHandler(tasks *Tasks) {
-	http.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
+// JSON / HTTP Handlers End
+
+// Endpoints Start
+
+func tasksHandler(mux *http.ServeMux, pool *pgxpool.Pool) {
+	mux.HandleFunc("/tasks", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			getTasksJson(tasks)(w, r)
+			getTasksJson(pool)(w, r)
 
 		case http.MethodPost:
-			createTaskJson(tasks)(w, r)
+			createTaskJson(pool)(w, r)
 
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -203,17 +318,17 @@ func tasksHandler(tasks *Tasks) {
 	})
 }
 
-func taskHandler(tasks *Tasks) {
-	http.HandleFunc("/tasks/{taskId}", func(w http.ResponseWriter, r *http.Request) {
+func taskHandler(mux *http.ServeMux, pool *pgxpool.Pool) {
+	mux.HandleFunc("/tasks/{taskId}", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
-			getTaskJson(tasks)(w, r)
+			getTaskJson(pool)(w, r)
 
 		case http.MethodPatch:
-			patchTaskJson(tasks)(w, r)
+			patchTaskJson(pool)(w, r)
 
 		case http.MethodDelete:
-			deleteTaskJson(tasks)(w, r)
+			deleteTaskJson(pool)(w, r)
 
 		default:
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -221,13 +336,13 @@ func taskHandler(tasks *Tasks) {
 	})
 }
 
-func CreateRestAPIServer() {
-	var tasks Tasks
+// Endpoints End
 
-	tasks.CreateTask("Learn Go", false)
-	tasks.CreateTask("Build an API", false)
-	tasks.CreateTask("Learn PostgreSQL", true)
+func CreateRestAPIServer(pool *pgxpool.Pool) *http.ServeMux {
+	mux := http.NewServeMux()
 
-	tasksHandler(&tasks)
-	taskHandler(&tasks)
+	tasksHandler(mux, pool)
+	taskHandler(mux, pool)
+
+	return mux
 }
