@@ -1,76 +1,71 @@
-# Net/HTTP — Go Learning Journey
+# Net/HTTP — Go Learning Journey ✅ COMPLETED
 
-This repository contains hands-on projects exploring Go's standard `net/http` library, progressing toward more advanced frameworks like **Chi**.
+> **Status: Project Finished** 🎉
+> This repository is the complete learning journey through Go's standard `net/http` library — from the first outbound HTTP request all the way to a full CRUD REST API backed by PostgreSQL. Next stop: **Chi** 🚂
 
 ---
 
 ## 📁 Projects Overview
 
 ### 🏠 Main (`main.go`)
-The entry point that demonstrates how to run both HTTP servers together on port 8080. It calls into each sub-package showing them in action simultaneously.
+Entrypoint that ties everything together:
+- Loads environment variables from `.env` using **godotenv**
+- Connects to PostgreSQL via a **pgxpool** connection pool
+- Runs the client & request experiments (fetched once at startup)
+- Registers server + REST API routes on one `http.ServeMux`
+- Serves everything on `http://localhost:8080`
 
 ---
 
-### 🌐 `client26-OCT/` — Making HTTP Requests with `http.Client`
+### 🌐 `client26-OCT/` — Simple HTTP Client
 
 **Concepts:**
-- Creating an `http.Client` instance for making outbound HTTP requests
-- Using `client.Get()` for simple GET requests
+- Creating an `http.Client` and using `client.Get()` for simple GET requests
 - Checking `response.StatusCode` (e.g., `http.StatusOK`)
-- Properly closing response bodies with `defer res.Body.Close()`
-- Decoding JSON responses using `json.NewDecoder()` and `Decode()`
-- Basic error handling for request and decode failures
+- Closing response bodies with `defer res.Body.Close()`
+- Decoding JSON responses with `json.NewDecoder().Decode()`
 
-**API Used:** [Bored API](https://bored-api.appbrewery.com/random) — fetches random activity suggestions.
-
----
-
-### 📨 `request26-OCT/` — Constructing HTTP Requests with `http.NewRequest`
-
-**Concepts:**
-- Using `http.NewRequest(method, url, body)` to build custom requests
-- Specifying the HTTP method explicitly via `http.MethodGet`, `http.MethodPost`, etc.
-- Passing headers and payloads (body) through the Request struct
-- Sending built requests using `client.Do(req)` instead of the shortcut `.Get()`
-- Difference between `client.Get()` (simple) vs `client.Do(req)` (full control)
-
-**Key Takeaway:** This gives you full control over headers, methods, timeouts, and body content — essential for POST, PUT, DELETE, and authenticated requests.
+**API Used:** [Bored API](https://bored-api.appbrewery.com/random) — fetches a random activity suggestion.
 
 ---
 
-### 🖥️ `server27-OCT/` — Building HTTP Servers & Handlers
+### 📨 `request26-OCT/` — Building Custom Requests
 
 **Concepts:**
-- Registering handlers with `http.HandleFunc("/", handlerFunc)` — uses a pattern matcher
-- Implementing the `http.Handler` interface by defining `ServeHTTP(w http.ResponseWriter, r *http.Request)`
-- Difference between `http.HandlerFunc` (func-based) and `http.Handler` (struct-based, interface-based)
-- Using custom structs as handlers to carry state (e.g., `greetHandler` holds a greeting string)
-- Setting up routes with `http.Handle("/path", handler)`
+- `http.NewRequest(method, url, body)` to build requests manually
+- Explicit methods via `http.MethodGet`, `http.MethodPost`, ...
+- Sending built requests with `client.Do(req)`
+- **Key takeaway:** `client.Get()` = convenience, `client.Do(req)` = full control over headers, body, timeouts
+
+---
+
+### 🖥️ `server27-OCT/` — Servers & Handlers
+
+**Concepts:**
+- `http.HandleFunc("/", fn)` vs `http.Handle("/path", handler)`
+- Implementing the `http.Handler` interface via `ServeHTTP(w, r)`
+- Struct handlers that carry state (`greetHandler{Greeting: "Hi"}`)
 
 **Routes:**
-| Route | Handler | Description |
-|-------|---------|-------------|
-| `/` | `mainHandler` (func) | Prints "Hello, This is Main Page" |
-| `/greet` | `greetHandler` (struct) | Prints a personalized greeting |
+| Route | Handler Type | Description |
+|-------|--------------|-------------|
+| `/` | `http.HandlerFunc` | "Hello, This is Main Page" |
+| `/greet` | `http.Handler` (struct) | Personalized greeting |
 
 ---
 
-### ⚡ `restAPI27-OCT/` — REST API Server with Path Parameters
+### ⚡ `restAPI27-OCT/` — Full CRUD REST API (PostgreSQL + pgx)
 
-**Concepts:**
-- Building a RESTful API endpoint pattern
-- Using `{param}` path parameters in routes: `/tasks/{taskId}`
-- Extracting path values with `r.PathValue("paramName")`
-- Returning JSON responses with `json.NewEncoder(w).Encode()`
-- Setting response headers (`Content-Type: application/json`)
-- Returning error responses via `http.Error(w, message, statusCode)`
-- Using closures with `http.HandlerFunc` to capture data (tasks slice) in handlers
+A production-style tasks API. Handlers are thin (parse input → call DB → write JSON), and all state lives in the database.
 
-**Routes:**
-| Method | Route | Description |
-|--------|-------|-------------|
-| GET | `/tasks` | Returns all tasks as JSON |
-| GET | `/tasks/{taskId}` | Returns a specific task by ID |
+**Routes & Methods:**
+| Method | Route | Description | Success Status |
+|--------|-------|-------------|----------------|
+| GET | `/tasks` | List all tasks | 200 |
+| POST | `/tasks` | Create task (JSON body) | 201 Created |
+| GET | `/tasks/{taskId}` | Get one task by ID | 200 |
+| PATCH | `/tasks/{taskId}?title=...&completed=...` | Update task by ID | 200 |
+| DELETE | `/tasks/{taskId}` | Delete task by ID | 200 |
 
 **Data Model (`Task`):**
 ```go
@@ -81,48 +76,140 @@ type Task struct {
 }
 ```
 
+**Concepts covered:**
+- Creating an isolated `http.NewServeMux()` instead of `DefaultServeMux`
+- **Method-based routing** with `switch r.Method` inside a single path handler
+- `{param}` path parameters + `r.PathValue("taskId")`
+- Query parameters via `r.URL.Query().Get("completed")` + `strconv.ParseBool`
+- Reading request JSON bodies: `json.NewDecoder(r.Body).Decode()`
+- Writing statuses explicitly: `w.WriteHeader(http.StatusCreated)`
+- Error responses with correct codes: `http.Error(w, msg, http.StatusBadRequest / NotFound / InternalServerError)`
+- Rejecting unsupported verbs with `http.StatusMethodNotAllowed`
+- Passing `r.Context()` down to database calls for cancellation support
+
+**Database layer:**
+- Explicit SQL with parameterized queries (`$1, $2, $3`) — no dynamic string concat
+- `QueryRow(...).Scan(...)` for single rows, `Query(...)` + `rows.Next()` loop + `rows.Scan` for lists
+- `INSERT ... RETURNING` to get the auto-generated ID back
+- `result.RowsAffected() > 0` to detect "task not found" for PATCH / DELETE
+- Handling `pgx.ErrNoRows` with `errors.Is`
+
+---
+
+### 🗄️ `database5-NOV/` — pgxpool Connection
+
+**Concepts:**
+- `pgxpool.New()` — pooled PostgreSQL connections (reuses connections across requests)
+- Health-check via `pool.Ping()`
+- Closing the pool cleanly with `defer pool.Close()`
+- Reading the DSN from the `GOOSE_DBSTRING` environment variable (same var goose uses for migrations)
+
+---
+
+### 📜 `sql/migrations/` — goose Migrations
+
+`20261105014940_create_tasks.sql`:
+```sql
+-- +goose Up
+CREATE TABLE tasks (
+    id SERIAL PRIMARY KEY,
+    title TEXT NOT NULL,
+    completed BOOLEAN NOT NULL DEFAULT FALSE
+);
+
+-- +goose Down
+DROP TABLE tasks;
+```
+
+**Concepts:**
+- Timestamped, ordered migration files
+- `-- +goose Up` (apply) / `-- +goose Down` (rollback) sections
+- Managing schema evolution from the command line
+
 ---
 
 ## 🔑 Key net/http Concepts Learned
 
 | Concept | Where |
 |---------|-------|
-| `http.Client{}` — creating an HTTP client | client26-OCT, request26-OCT |
-| `client.Get(url)` — simple GET request | client26-OCT |
-| `http.NewRequest()` — building custom requests | request26-OCT |
-| `client.Do(req)` — sending any HTTP request | request26-OCT |
-| `response.Body.Close()` — resource cleanup | client26-OCT, request26-OCT |
-| `json.NewDecoder(res.Body).Decode()` — reading JSON | client26-OCT, request26-OCT |
-| `http.HandleFunc()` — registering func handlers | server27-OCT |
-| `http.Handle()` — registering interface handlers | server27-OCT |
-| `ServeHTTP(w, r)` — implementing `http.Handler` | server27-OCT |
-| `w.Header().Set()` — setting response headers | restAPI27-OCT |
-| `json.NewEncoder(w).Encode()` — writing JSON responses | restAPI27-OCT |
-| `http.Error()` — returning error responses | restAPI27-OCT |
-| `r.PathValue("key")` — extracting URL path params | restAPI27-OCT |
-| Closures capturing data in handlers | restAPI27-OCT |
+| `http.Client` + `client.Get()` | client26-OCT |
+| `http.NewRequest` + `client.Do(req)` | request26-OCT |
+| `response.Body.Close()` cleanup | client26-OCT, request26-OCT |
+| `json.NewDecoder().Decode()` | client/OCT request/REST API |
+| `http.HandleFunc` / `http.Handle` / `ServeHTTP` | server27-OCT |
+| `http.NewServeMux()` (custom mux) | restAPI27-OCT, main.go |
+| Path parameters `{taskId}` + `r.PathValue()` | restAPI27-OCT |
+| Query params + `r.URL.Query()` | restAPI27-OCT |
+| Method-based routing via `r.Method` | restAPI27-OCT |
+| `w.Header().Set()` / `w.WriteHeader()` | restAPI27-OCT |
+| `http.Error()` with status codes | restAPI27-OCT |
+| `r.Context()` for cancellation | restAPI27-OCT |
+| Reading JSON from request bodies | restAPI27-OCT |
+| Closures capturing dependencies in handlers | restAPI27-OCT |
+
+**Bonus concepts beyond net/http:**
+| Concept | Where |
+|---------|-------|
+| `pgxpool` connection pooling | database5-NOV |
+| Parameterized SQL queries (`$1...`) | restAPI27-OCT |
+| `INSERT ... RETURNING` | restAPI27-OCT |
+| `RowsAffected()` for existence checks | restAPI27-OCT |
+| `errors.Is(err, pgx.ErrNoRows)` | restAPI27-OCT |
+| `.env` config with godotenv | main.go |
+| Versioned SQL migrations (goose) | sql/migrations |
+
+---
+
+## 📌 Example Usage
+
+```bash
+# List all tasks
+curl http://localhost:8080/tasks
+
+# Create a task
+curl -X POST http://localhost:8080/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title": "Learn Chi", "completed": false}'
+
+# Get one task
+curl http://localhost:8080/tasks/1
+
+# Update a task
+curl -X PATCH "http://localhost:8080/tasks/1?title=Example&completed=true"
+
+# Delete a task
+curl -X DELETE http://localhost:8080/tasks/1
+```
 
 ---
 
 ## 🏃 How to Run
 
-```bash
-go mod tidy
-go run main.go
-```
-
-Then visit:
-- **http://localhost:8080/** → Main page
-- **http://localhost:8080/greet** → Custom greeting
-- **http://localhost:8080/tasks** → All tasks (JSON)
-- **http://localhost:8080/tasks/1** → Single task by ID (JSON)
+1. **Create a `.env` file** (git-ignored) with your Postgres DSN:
+   ```
+   GOOSE_DBSTRING=postgres://user:password@localhost:5432/nethttp
+   ```
+2. **Apply migrations:**
+   ```bash
+   goose up
+   ```
+3. **Run the app:**
+   ```bash
+   go mod tidy
+   go run main.go
+   ```
+4. Visit:
+   - http://localhost:8080/ and /greet — classic server pages
+   - http://localhost:8080/tasks — the REST API
 
 ---
 
-## 🎯 Next Steps
+## 🎯 What's Next
 
-Once comfortable with `net/http`, explore **[Chi Router](https://github.com/go-chi/chi)** — a lightweight, idiomatic router for Go microservices, which builds on top of the standard library but adds:
-- Pattern matching with wildcards
-- Middlewares
-- Sub-routers
-- Cleaner routing syntax
+The `net/http` journey ends here. The next phase is **[Chi Router](https://github.com/go-chi/chi)**, which builds on the same standard-library foundations learned here and adds:
+- Middleware chaining
+- Composable sub-routers
+- URL params with wildcard patterns (`r.URLParam`)
+- Cleaner REST routing (`r.Get`, `r.Post`, `r.Patch`, `r.Delete`)
+
+Learning Chi will feel natural: everything familiar from this repo (handlers, `ResponseWriter`, `Request`) carries over — Chi just organizes it better.
